@@ -33,6 +33,10 @@ namespace Radio {
   // Comprueba sin bloquear.
   bool poll(uint8_t* buf, size_t maxLen, RxInfo& info);
 
+  // RSSI instantáneo del canal (ruido de fondo si nadie transmite), en dBm.
+  // Debe llamarse en recepción.
+  float channelRssi();
+
   // Tiempo en el aire con los parámetros actuales, en ms.
   uint32_t airtimeMs(size_t len);
 }

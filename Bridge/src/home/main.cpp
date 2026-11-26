@@ -1,7 +1,9 @@
 // ---------------------------------------------------------------------------
 //  Nodo CASA (Bridge): WiFi + MQTT.
-//  Recibe por LoRa el estado de los sensores del garaje, lo confirma (ACK) y
-//  lo publica en MQTT con descubrimiento automático para Home Assistant.
+//  Recibe por LoRa el estado de los sensores del garaje (cifrado con
+//  AES-128-CCM), lo verifica, lo confirma (ACK autenticado) y lo publica en
+//  MQTT con descubrimiento automático para Home Assistant.
+//  Además mide el ruido del canal para detectar inhibidores (jamming).
 // ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include <WiFi.h>
@@ -11,6 +13,7 @@
 #include "protocol.h"
 #include "radio.h"
 #include "display.h"
+#include "secure.h"
 
 #if __has_include("secrets.h")
   #include "secrets.h"
@@ -51,6 +54,8 @@ static void pubRaw(const String& topic, const char* payload, bool retain) {
   if (mqtt.connected()) mqtt.publish(topic.c_str(), payload, retain);
 }
 
+static void addDevice(JsonDocument& d, bool home);
+
 static void haEntity(const char* comp, const char* obj, const char* name,
                      const char* devClass, const char* unit, const char* tpl,
                      bool diagnostic = false, const char* stateClass = "measurement") {
@@ -71,38 +76,93 @@ static void haEntity(const char* comp, const char* obj, const char* name,
   av.add<JsonObject>()["topic"] = T("status");
   av.add<JsonObject>()["topic"] = T("garage/availability");
   d["availability_mode"] = "all";
-  JsonObject dev = d["device"].to<JsonObject>();
-  dev["identifiers"].to<JsonArray>().add("lora32_garage");
-  dev["name"] = "Garaje (LoRa)";
-  dev["manufacturer"] = "LILYGO";
-  dev["model"] = "LoRa32 SX1276";
-  dev["via_device"] = "lora32_home";
+  addDevice(d, false);
   char out[1024];
   serializeJson(d, out, sizeof out);
   pubRaw(String(HA_PREFIX "/") + comp + "/lora32_garage/" + obj + "/config", out, true);
 }
 
+// ---------------- Nodo de casa: ruido y seguridad ----------------
+static uint32_t rejected = 0;          // tramas con firma no válida
+static float    noiseMin = 0;          // mínimo del periodo actual
+static float    noiseFloor = NAN;      // último valor publicado
+static uint32_t noisePeriodStart = 0, lastNoiseSample = 0;
+
+static void addDevice(JsonDocument& d, bool home) {
+  JsonObject dev = d["device"].to<JsonObject>();
+  dev["identifiers"].to<JsonArray>().add(home ? "lora32_home" : "lora32_garage");
+  dev["name"] = home ? "Puente LoRa (casa)" : "Garaje (LoRa)";
+  dev["manufacturer"] = "LILYGO";
+  dev["model"] = "LoRa32 SX1276";
+  if (!home) dev["via_device"] = "lora32_home";
+}
+
+static void haHomeSensor(const char* obj, const char* name, const char* devClass,
+                         const char* unit, const char* tpl, const char* stateClass,
+                         bool diagnostic) {
+  JsonDocument d;
+  d["name"] = name;
+  d["unique_id"] = String("lora32_home_") + obj;
+  d["object_id"] = String("puente_lora_") + obj;
+  d["state_topic"] = T("home/state");
+  d["value_template"] = tpl;
+  if (devClass) d["device_class"] = devClass;
+  if (unit) d["unit_of_measurement"] = unit;
+  d["state_class"] = stateClass;
+  if (diagnostic) d["entity_category"] = "diagnostic";
+  d["availability_topic"] = T("status");
+  addDevice(d, true);
+  char out[800];
+  serializeJson(d, out, sizeof out);
+  pubRaw(String(HA_PREFIX "/sensor/lora32_home/") + obj + "/config", out, true);
+}
+
+static void haAnnounceHome() {
+  if (!mqtt.connected()) return;
+  JsonDocument d;
+  d["name"] = "Enlace LoRa";
+  d["unique_id"] = "lora32_home_status";
+  d["object_id"] = "puente_lora_status";
+  d["state_topic"] = T("status");
+  d["payload_on"] = "online";
+  d["payload_off"] = "offline";
+  d["device_class"] = "connectivity";
+  d["entity_category"] = "diagnostic";
+  addDevice(d, true);
+  char out[600];
+  serializeJson(d, out, sizeof out);
+  pubRaw(HA_PREFIX "/binary_sensor/lora32_home/status/config", out, true);
+  haHomeSensor("noise", "Ruido del canal", "signal_strength", "dBm",
+               "{{ value_json.noise_dbm }}", "measurement", false);
+  haHomeSensor("rejected", "Mensajes rechazados", nullptr, nullptr,
+               "{{ value_json.rejected }}", "total_increasing", false);
+}
+
+static void publishHome() {
+  JsonDocument d;
+  if (!isnan(noiseFloor)) d["noise_dbm"] = roundf(noiseFloor);
+  d["rejected"] = rejected;
+  publish("home/state", d, true);
+}
+
+// Ruido de fondo: muestrea el RSSI del canal cada 500 ms y se queda con el
+// MÍNIMO de cada minuto. Los paquetes legítimos no lo suben (son ráfagas);
+// un inhibidor, que emite de forma continua, sí.
+static void sampleNoise() {
+  if (millis() - lastNoiseSample < 500) return;
+  lastNoiseSample = millis();
+  float r = Radio::channelRssi();
+  if (!noisePeriodStart || r < noiseMin) noiseMin = r;
+  if (!noisePeriodStart) noisePeriodStart = millis();
+  if (millis() - noisePeriodStart >= 60000) {
+    noiseFloor = noiseMin;
+    noisePeriodStart = 0;
+    publishHome();
+  }
+}
+
 static void haAnnounce() {
   if (!mqtt.connected() || !g.valid) return;
-  // Dispositivo "puente" (el propio nodo de casa) para via_device
-  {
-    JsonDocument d;
-    d["name"] = "Enlace LoRa";
-    d["unique_id"] = "lora32_home_status";
-    d["state_topic"] = T("status");
-    d["payload_on"] = "online";
-    d["payload_off"] = "offline";
-    d["device_class"] = "connectivity";
-    d["entity_category"] = "diagnostic";
-    JsonObject dev = d["device"].to<JsonObject>();
-    dev["identifiers"].to<JsonArray>().add("lora32_home");
-    dev["name"] = "Puente LoRa (casa)";
-    dev["manufacturer"] = "LILYGO";
-    dev["model"] = "LoRa32 SX1276";
-    char out[600];
-    serializeJson(d, out, sizeof out);
-    pubRaw(HA_PREFIX "/binary_sensor/lora32_home/status/config", out, true);
-  }
   if (g.flags & SF_HAS_PIR)
     haEntity("binary_sensor", "motion", "Movimiento", "motion", nullptr,
              "{{ 'ON' if value_json.motion else 'OFF' }}");
@@ -153,17 +213,25 @@ static void publishGarage() {
   publish("garage/state", d, true);
 }
 
-// Paquete de sensores del garaje: confirmar y publicar.
+// Paquete de sensores del garaje: verificar, confirmar y publicar.
 static void handleSensor(const uint8_t* buf, const RxInfo& rx, bool ack) {
-  if (rx.len < sizeof(PktSensor)) return;
-  PktSensor p;
-  memcpy(&p, buf, sizeof p);
+  SensorData p;
+  uint8_t nonce[SEC_NONCE_LEN];
+  if (!Secure::open(buf, rx.len, sizeof(PktHdr), &p, sizeof p, nonce)) {
+    // Alterado, falsificado o con otra clave: ni se confirma ni se publica.
+    rejected++;
+    Serial.printf("[home] trama RECHAZADA (firma no válida), RSSI %.0f\n", rx.rssi);
+    publishHome();
+    return;
+  }
   // Si el ciclo de trabajo no nos deja contestar ya, no bloqueamos: se publica
   // igual y el garaje lo reenviará.
   if (ack && Radio::dutyWaitMs() < 100) {
-    PktSensAck a{{PKT_MAGIC, PKT_SENS_ACK, p.h.seq}};
+    PktHdr h{PKT_MAGIC, PKT_SENS_ACK, buf[2]};
+    uint8_t a[ACK_FRAME_LEN];
+    size_t n = Secure::sealAck(&h, sizeof h, nonce, a, sizeof a);
     delay(30);
-    Radio::send(&a, sizeof a);
+    if (n) Radio::send(a, n);
   }
   bool capsChanged = (p.flags & (SF_HAS_PIR | SF_HAS_DOOR | SF_HAS_ENV)) != g.announced;
   g.valid = true;
@@ -200,14 +268,17 @@ static void connectivity() {
   if (ok) {
     mqtt.publish(T("status").c_str(), "online", true);
     Serial.println("[mqtt] conectado");
+    haAnnounceHome();
+    publishHome();
     if (g.valid) { haAnnounce(); setGarageOnline(g.online); publishGarage(); }
   }
 }
 
 static void drawStatus() {
   char l0[24], l1[24], l2[24], l3[24], l4[24], l5[24];
-  snprintf(l0, sizeof l0, "CASA %s %s", WiFi.isConnected() ? "WiFi" : "----",
-           mqtt.connected() ? "MQTT" : "----");
+  if (Secure::usingExampleKey()) snprintf(l0, sizeof l0, "CASA CLAVE EJEMPLO!");
+  else snprintf(l0, sizeof l0, "CASA %s %s %s", WiFi.isConnected() ? "WiFi" : "----",
+                mqtt.connected() ? "MQTT" : "----", rejected ? "!RECH" : "");
   const RadioParams& p = Radio::current();
   snprintf(l1, sizeof l1, "SF%u BW%.0f CR4/%u %ddBm", p.sf, p.bw, p.cr, p.power);
   if (!g.valid) {
@@ -219,7 +290,7 @@ static void drawStatus() {
            !(g.flags & SF_HAS_DOOR) ? "--" : (g.flags & SF_DOOR_OPEN) ? "ABIER" : "cerr");
   if (g.flags & SF_HAS_ENV) snprintf(l3, sizeof l3, "%.1fC %.0f%% %.0fhPa", g.temp, g.hum, g.press);
   else snprintf(l3, sizeof l3, " ");
-  snprintf(l4, sizeof l4, "%.0fdBm %.1fdB", g.rssi, g.snr);
+  snprintf(l4, sizeof l4, "%.0fdBm %.1fdB N%.0f", g.rssi, g.snr, noiseFloor);
   snprintf(l5, sizeof l5, "%s hace %lus", g.online ? "garaje" : "PERDIDO",
            (unsigned long)((millis() - g.lastRx) / 1000));
   Display::show(l0, l1, l2, l3, l4, l5);
@@ -234,6 +305,12 @@ void setup() {
     Display::show("CASA", "ERROR radio LoRa", "revisa placa/pines");
     while (true) delay(1000);
   }
+  if (!Secure::begin()) {
+    Display::show("CASA", "ERROR cifrado", "revisa LORA_KEY");
+    while (true) delay(1000);
+  }
+  if (Secure::usingExampleKey())
+    Serial.println("[home] AVISO: clave de ejemplo. Cambia LORA_KEY en secrets.h");
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -254,6 +331,7 @@ void loop() {
     digitalWrite(LED_PIN, LOW);
     drawStatus();
   }
+  sampleNoise();
   static uint32_t lastDraw = 0;
   if (millis() - lastDraw > 2000) {
     lastDraw = millis();

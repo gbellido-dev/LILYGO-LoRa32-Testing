@@ -49,6 +49,8 @@ uint32_t airtimeMs(size_t len) {
   return (uint32_t)((lora.getTimeOnAir(len) + 999) / 1000);
 }
 
+float channelRssi() { return lora.getRSSI(false, true); }
+
 uint32_t dutyWaitMs() {
   int32_t d = (int32_t)(nextTxAllowed - millis());
   return d > 0 ? (uint32_t)d : 0;

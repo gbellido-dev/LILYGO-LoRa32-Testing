@@ -3,12 +3,13 @@
 
 // ---------------------------------------------------------------------------
 //  Protocolo garaje -> casa.
-//   SENSOR    garaje -> casa  estado completo de los sensores
-//   SENS_ACK  casa -> garaje  confirmación (mismo nº de secuencia)
+//   SENSOR    garaje -> casa  estado completo de los sensores (cifrado)
+//   SENS_ACK  casa -> garaje  confirmación autenticada (mismo nº de secuencia)
 //  Siempre con los parámetros del enlace (LINK_* en config.h).
+//  Formato de las tramas cifradas: ver secure.h.
 // ---------------------------------------------------------------------------
 
-#define PKT_MAGIC 0xB7   // distinto del proyecto Testing para no mezclarse
+#define PKT_MAGIC 0xB8   // distinto de Testing y de la versión sin cifrar
 
 enum PktType : uint8_t {
   PKT_SENSOR   = 10,
@@ -21,15 +22,15 @@ struct __attribute__((packed)) PktHdr {
   uint8_t seq;
 };
 
-// Bits de PktSensor.flags
+// Bits de SensorData.flags
 #define SF_MOTION    0x01   // hay (o ha habido desde el último envío) movimiento
 #define SF_DOOR_OPEN 0x02
 #define SF_HAS_PIR   0x10
 #define SF_HAS_DOOR  0x20
 #define SF_HAS_ENV   0x40   // BME280 presente y lectura válida
 
-struct __attribute__((packed)) PktSensor {
-  PktHdr   h;
+// Datos de sensores (lo que va cifrado tras la cabecera y el nonce)
+struct __attribute__((packed)) SensorData {
   uint8_t  flags;
   int16_t  temp100;       // °C * 100
   uint16_t hum10;         // %HR * 10
@@ -39,6 +40,6 @@ struct __attribute__((packed)) PktSensor {
   uint16_t uptimeMin;
 };
 
-struct __attribute__((packed)) PktSensAck {
-  PktHdr h;
-};
+#include "secure.h"
+#define SENSOR_FRAME_LEN (sizeof(PktHdr) + SEC_OVERHEAD + sizeof(SensorData))
+#define ACK_FRAME_LEN    (sizeof(PktHdr) + SEC_MIC_LEN)

@@ -49,7 +49,7 @@
 // Parámetros del ENLACE garaje <-> casa. Iguales en los DOS nodos.
 // Elige el SF con el proyecto Testing: el más bajo con ~100 % de entrega y
 // SNR >= límite + 5 dB. Más SF = más alcance, pero más latencia y espera.
-//   SF7 ~ 40 ms/mensaje · SF9 ~ 150 ms · SF12 ~ 1.2 s
+//   Mensaje cifrado: SF7 ~ 70 ms · SF9 ~ 250 ms · SF12 ~ 1.8 s
 #ifndef LINK_SF
 #define LINK_SF     12
 #endif

@@ -7,7 +7,7 @@ o usa `pio` dentro de ella.
 | Carpeta | Para qué | Envs |
 |---------|----------|------|
 | [`Testing/`](Testing) | Medir el enlace: barridos de SF7…SF12 con ping/pong, resultados en Node-RED (dashboard + CSV) | `home`, `garage` (+ `_v1`) |
-| [`Bridge/`](Bridge) | Uso definitivo: PIR, puerta y BME280 del garaje → LoRa → MQTT → **Home Assistant** (autodescubrimiento) | `home`, `garage` (+ `_v1`) |
+| [`Bridge/`](Bridge) | Uso definitivo: PIR, puerta y BME280 del garaje → LoRa **cifrado (AES-128)** → MQTT → **Home Assistant** (autodescubrimiento y detección de inhibidores) | `home`, `garage` (+ `_v1`) |
 
 ## Orden recomendado
 

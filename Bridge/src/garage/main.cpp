@@ -1,13 +1,15 @@
 // ---------------------------------------------------------------------------
 //  Nodo GARAJE (Bridge): solo alimentación.
 //  Lee sensores (PIR, puerta, BME280) y envía su estado por LoRa al nodo de
-//  casa, con confirmación (ACK) y reintentos.
+//  casa, cifrado con AES-128-CCM, con confirmación (ACK) autenticada y
+//  reintentos.
 // ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include "config.h"
 #include "protocol.h"
 #include "radio.h"
 #include "display.h"
+#include "secure.h"
 #if BME280_ADDR
   #include <Wire.h>
   #include <Adafruit_BME280.h>
@@ -33,7 +35,11 @@ static float    ackedTemp = NAN;
 static bool     pending = true;          // enviar al arrancar
 static uint8_t  txSeq = 0, attempts = 0;
 static uint32_t nextAttempt = 0, lastSentOk = 0;
-static PktSensor outPkt;
+static SensorData outData;                       // datos del envío en curso
+static uint8_t    outFrame[SENSOR_FRAME_LEN];    // trama cifrada (se reenvía igual)
+static size_t     outLen = 0;
+static uint8_t    outNonce[SEC_NONCE_LEN];       // para validar el ACK
+static uint16_t   badAcks = 0;
 
 static void readEnv() {
 #if BME280_ADDR
@@ -74,12 +80,15 @@ static void buildPacket() {
   if (PIR_PIN >= 0)  f |= SF_HAS_PIR  | (reportedMotion() ? SF_MOTION : 0);
   if (DOOR_PIN >= 0) f |= SF_HAS_DOOR | (doorOpen ? SF_DOOR_OPEN : 0);
   if (hasEnv && !isnan(temp)) f |= SF_HAS_ENV;
-  outPkt = PktSensor{{PKT_MAGIC, PKT_SENSOR, txSeq}, f,
-                     (int16_t)(isnan(temp) ? 0 : lroundf(temp * 100)),
-                     (uint16_t)(isnan(hum) ? 0 : lroundf(hum * 10)),
-                     (uint16_t)(isnan(press) ? 0 : lroundf(press * 10)),
-                     motionEvents, (int16_t)(ackRssi * 10),
-                     (uint16_t)(millis() / 60000UL)};
+  outData = SensorData{f,
+                       (int16_t)(isnan(temp) ? 0 : lroundf(temp * 100)),
+                       (uint16_t)(isnan(hum) ? 0 : lroundf(hum * 10)),
+                       (uint16_t)(isnan(press) ? 0 : lroundf(press * 10)),
+                       motionEvents, (int16_t)(ackRssi * 10),
+                       (uint16_t)(millis() / 60000UL)};
+  PktHdr h{PKT_MAGIC, PKT_SENSOR, txSeq};
+  outLen = Secure::seal(&h, sizeof h, &outData, sizeof outData, outFrame, sizeof outFrame,
+                        outNonce);
 }
 
 static void serviceSensorTx() {
@@ -94,22 +103,29 @@ static void serviceSensorTx() {
   }
   if (Radio::dutyWaitMs()) return;
   if (attempts == 0) { txSeq++; buildPacket(); }   // nuevo envío: foto del estado actual
-  Radio::send(&outPkt, sizeof outPkt);
+  if (!outLen) { pending = false; return; }       // no debería pasar
+  Radio::send(outFrame, outLen);
   attempts++;
   // Espera del ACK: su tiempo en el aire + margen + algo aleatorio para no
   // chocar siempre con lo mismo.
-  nextAttempt = millis() + Radio::airtimeMs(sizeof(PktSensAck)) + 400 + random(0, 600);
+  nextAttempt = millis() + Radio::airtimeMs(ACK_FRAME_LEN) + 400 + random(0, 600);
 }
 
-static void onSensorAck(uint8_t seq, const RxInfo& rx) {
+static void onSensorAck(const uint8_t* buf, const RxInfo& rx) {
+  uint8_t seq = buf[2];
   if (seq != txSeq || !attempts) return;
+  if (!Secure::openAck(buf, rx.len, sizeof(PktHdr), outNonce)) {
+    badAcks++;
+    Serial.println("[garage] ACK con firma NO válida: ignorado");
+    return;
+  }
   ackRssi = rx.rssi;
   attempts = 0;
   pending = false;
   lastSentOk = millis();
-  ackedMotion = outPkt.flags & SF_MOTION;
-  ackedDoor = outPkt.flags & SF_DOOR_OPEN;
-  ackedTemp = (outPkt.flags & SF_HAS_ENV) ? outPkt.temp100 / 100.0f : NAN;
+  ackedMotion = outData.flags & SF_MOTION;
+  ackedDoor = outData.flags & SF_DOOR_OPEN;
+  ackedTemp = (outData.flags & SF_HAS_ENV) ? outData.temp100 / 100.0f : NAN;
   // El pulso de movimiento ya está contado; si el PIR sigue activo, motionNow
   // lo mantiene, y cuando baje se enviará "sin movimiento".
   motionLatched = false;
@@ -120,7 +136,9 @@ static void onSensorAck(uint8_t seq, const RxInfo& rx) {
 static void draw() {
   char l0[24], l1[24], l2[24], l3[24], l4[24], l5[24];
   const RadioParams& p = Radio::current();
-  snprintf(l0, sizeof l0, "GARAJE  bridge");
+  if (Secure::usingExampleKey()) snprintf(l0, sizeof l0, "GARAJE CLAVE EJEMPLO!");
+  else if (badAcks) snprintf(l0, sizeof l0, "GARAJE  ACK malos %u", badAcks);
+  else snprintf(l0, sizeof l0, "GARAJE  cifrado");
   snprintf(l1, sizeof l1, "SF%u BW%.0f CR4/%u %ddBm", p.sf, p.bw, p.cr, p.power);
   snprintf(l2, sizeof l2, "Mov %s  Puerta %s",
            PIR_PIN < 0 ? "--" : motionNow ? "SI" : "no",
@@ -149,6 +167,12 @@ void setup() {
     Display::show("GARAJE", "ERROR radio LoRa", "revisa placa/pines");
     while (true) delay(1000);
   }
+  if (!Secure::begin()) {
+    Display::show("GARAJE", "ERROR cifrado", "revisa LORA_KEY");
+    while (true) delay(1000);
+  }
+  if (Secure::usingExampleKey())
+    Serial.println("[garage] AVISO: clave de ejemplo. Cambia LORA_KEY en secrets.h");
   randomSeed(esp_random());
   if (DOOR_PIN >= 0) doorOpen = digitalRead(DOOR_PIN) == DOOR_OPEN_LEVEL;
   readEnv();
@@ -165,7 +189,7 @@ void loop() {
     lastRssi = rx.rssi;
     lastSnr = rx.snr;
     digitalWrite(LED_PIN, HIGH);
-    onSensorAck(buf[2], rx);
+    onSensorAck(buf, rx);
     digitalWrite(LED_PIN, LOW);
   }
 
