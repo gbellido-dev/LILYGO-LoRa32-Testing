@@ -12,8 +12,8 @@ namespace Radio {
 
 bool begin() {
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_CS);
-  int st = lora.begin(LORA_FREQ_MHZ, CTRL_BW, CTRL_SF, CTRL_CR,
-                      LORA_SYNC_WORD, CTRL_POWER, LORA_PREAMBLE);
+  int st = lora.begin(LORA_FREQ_MHZ, LINK_BW, LINK_SF, LINK_CR,
+                      LORA_SYNC_WORD, LINK_POWER, LORA_PREAMBLE);
   if (st != RADIOLIB_ERR_NONE) {
     Serial.printf("[radio] begin() error %d\n", st);
     return false;
@@ -21,7 +21,7 @@ bool begin() {
   lora.setCRC(true);
   lora.setCurrentLimit(140);
   lora.setDio0Action(onDio0, RISING);
-  cur = {CTRL_SF, CTRL_BW, CTRL_CR, CTRL_POWER};
+  cur = {LINK_SF, LINK_BW, LINK_CR, LINK_POWER};
   startRx();
   return true;
 }
@@ -43,7 +43,7 @@ bool apply(const RadioParams& p) {
 
 const RadioParams& current() { return cur; }
 
-void applyCtrl() { apply({CTRL_SF, CTRL_BW, CTRL_CR, CTRL_POWER}); }
+void applyLink() { apply({LINK_SF, LINK_BW, LINK_CR, LINK_POWER}); }
 
 uint32_t airtimeMs(size_t len) {
   return (uint32_t)((lora.getTimeOnAir(len) + 999) / 1000);

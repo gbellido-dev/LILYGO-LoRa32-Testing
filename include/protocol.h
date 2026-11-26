@@ -22,7 +22,16 @@ enum PktType : uint8_t {
   PKT_PONG    = 4,
   PKT_REP_REQ = 5,
   PKT_REPORT  = 6,
+  PKT_SENSOR  = 10,  // garaje -> casa (canal de enlace). h.testId = nº secuencia
+  PKT_SENS_ACK= 11,   // casa -> garaje. h.testId = nº secuencia confirmado
 };
+
+// Bits de PktSensor.flags
+#define SF_MOTION    0x01   // hay (o ha habido desde el último envío) movimiento
+#define SF_DOOR_OPEN 0x02
+#define SF_HAS_PIR   0x10
+#define SF_HAS_DOOR  0x20
+#define SF_HAS_ENV   0x40   // BME280 presente y lectura válida
 
 struct __attribute__((packed)) PktHdr {
   uint8_t magic;
@@ -67,4 +76,19 @@ struct __attribute__((packed)) PktReport {
   uint16_t txCount;   // pongs enviados
   int16_t  rssiAvg10;
   int16_t  snrAvg10;
+};
+
+struct __attribute__((packed)) PktSensor {
+  PktHdr   h;
+  uint8_t  flags;
+  int16_t  temp100;       // °C * 100
+  uint16_t hum10;         // %HR * 10
+  uint16_t press10;       // hPa * 10
+  uint16_t motionEvents;  // contador de activaciones del PIR desde el arranque
+  int16_t  ackRssi10;     // RSSI del último ACK oído en el garaje (enlace casa->garaje)
+  uint16_t uptimeMin;
+};
+
+struct __attribute__((packed)) PktSensAck {
+  PktHdr h;
 };

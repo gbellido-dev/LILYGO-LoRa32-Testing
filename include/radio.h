@@ -20,7 +20,7 @@ namespace Radio {
   bool begin();
   bool apply(const RadioParams& p);
   const RadioParams& current();
-  void applyCtrl();
+  void applyLink();
 
   // Envía respetando el ciclo de trabajo (espera si hace falta). Vuelve a RX.
   bool send(const void* data, size_t len);

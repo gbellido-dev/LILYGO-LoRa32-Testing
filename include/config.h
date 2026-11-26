@@ -47,9 +47,31 @@
 #define DUTY_CYCLE      0.10f
 #endif
 
-// Canal de control: siempre el más robusto para que la negociación llegue
-// aunque el SF bajo a probar no llegue.
-#define CTRL_SF     12
-#define CTRL_BW     125.0
-#define CTRL_CR     5
-#define CTRL_POWER  17   // dBm (máx. SX1276 PA_BOOST = 20)
+// Canal de ENLACE: el que usan siempre los dos nodos. Por él viajan los
+// sensores del garaje y la negociación de las pruebas de SF.
+// Empieza con SF12 (lo más robusto). Cuando el barrido te diga qué SF llega
+// bien con margen, bájalo aquí (en los DOS nodos): menos latencia y menos
+// ciclo de trabajo. Por ejemplo, el SF más bajo con ~100 % y SNR >= límite+5 dB.
+#define LINK_SF     12
+#define LINK_BW     125.0
+#define LINK_CR     5
+#define LINK_POWER  17   // dBm (máx. SX1276 PA_BOOST = 20)
+
+// ---------------- Sensores del garaje ----------------
+// Pon -1 en un pin para desactivar ese sensor.
+// PIR (HC-SR501 a 5 V o AM312 a 3.3 V): salida a GPIO34 (solo entrada).
+#define PIR_PIN         34
+#define PIR_ACTIVE      HIGH
+// Contacto de puerta (reed): entre GPIO13 y GND, pull-up interno.
+// Imán junto al reed = contacto cerrado = LOW = puerta cerrada.
+#define DOOR_PIN        13
+#define DOOR_OPEN_LEVEL HIGH
+// BME280 (temperatura/humedad/presión) en el mismo I2C que el OLED.
+// 0 = desactivado. Dirección 0x76 (o 0x77 según el módulo).
+#define BME280_ADDR     0x76
+
+// Envío periódico del estado completo (s). Casa marca el garaje como
+// "no disponible" en Home Assistant si no oye nada en 3 periodos.
+#define HEARTBEAT_S     60
+// Además se envía si la temperatura cambia más de esto (°C).
+#define TEMP_DELTA      0.5f

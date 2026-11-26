@@ -1,51 +1,172 @@
 // ---------------------------------------------------------------------------
-//  Nodo GARAJE: solo alimentación. Escucha en el canal de control (SF12),
-//  acepta la configuración que pide el nodo de casa, responde a los pings
-//  con el RSSI/SNR que ha medido y vuelve al canal de control.
+//  Nodo GARAJE: solo alimentación.
+//   - Lee sensores (PIR, puerta, BME280) y envía su estado por LoRa al nodo
+//     de casa, con confirmación (ACK) y reintentos.
+//   - Atiende las pruebas de SF que lanza casa (ping/pong).
 // ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include "config.h"
 #include "protocol.h"
 #include "radio.h"
 #include "display.h"
+#if BME280_ADDR
+  #include <Wire.h>
+  #include <Adafruit_BME280.h>
+#endif
 
-enum State { ST_CTRL, ST_TEST };
-static State state = ST_CTRL;
+enum State { ST_LINK, ST_TEST };
+static State state = ST_LINK;
 
-// Estadísticas de la última prueba (se envían en el REPORT)
+// ---------------- Pruebas de SF ----------------
 static uint8_t  testId = 0;
-static PktCfg   cfg;
+static PktCfg   cfg{};
 static uint16_t rxCount = 0, txCount = 0;
 static float    rssiSum = 0, snrSum = 0;
 static uint32_t testDeadline = 0;
 static float    lastRssi = 0, lastSnr = 0;
 static uint32_t lastRxMs = 0;
 
+// ---------------- Sensores ----------------
+#if BME280_ADDR
+static Adafruit_BME280 bme;
+#endif
+static bool     hasEnv = false;
+static float    temp = NAN, hum = NAN, press = NAN;
+static bool     motionNow = false, motionLatched = false;
+static uint16_t motionEvents = 0;
+static bool     doorOpen = false;
+static uint32_t doorChangeMs = 0;
+static float    ackRssi = 0;
+
+// Estado confirmado por casa y envío pendiente
+static bool     ackedMotion = false, ackedDoor = false;
+static float    ackedTemp = NAN;
+static bool     pending = true;          // enviar al arrancar
+static uint8_t  txSeq = 0, attempts = 0;
+static uint32_t nextAttempt = 0, lastSentOk = 0;
+static PktSensor outPkt;
+
+static void readEnv() {
+#if BME280_ADDR
+  if (!hasEnv) return;
+  float t = bme.readTemperature(), h = bme.readHumidity(), p = bme.readPressure();
+  if (isnan(t) || t < -40 || t > 85) { temp = hum = press = NAN; return; }
+  temp = t; hum = h; press = p / 100.0f;
+#endif
+}
+
+static void readInputs() {
+  if (PIR_PIN >= 0) {
+    bool m = digitalRead(PIR_PIN) == PIR_ACTIVE;
+    if (m && !motionNow) { motionEvents++; motionLatched = true; }
+    motionNow = m;
+  }
+  if (DOOR_PIN >= 0) {
+    bool o = digitalRead(DOOR_PIN) == DOOR_OPEN_LEVEL;
+    if (o != doorOpen && millis() - doorChangeMs > 50) {  // antirrebote
+      doorOpen = o;
+      doorChangeMs = millis();
+    }
+  }
+}
+
+static bool reportedMotion() { return motionNow || motionLatched; }
+
+// ¿Hay algo nuevo que contar a casa?
+static void checkChanges() {
+  if (reportedMotion() != ackedMotion || doorOpen != ackedDoor) pending = true;
+  if (hasEnv && !isnan(temp) && (isnan(ackedTemp) || fabsf(temp - ackedTemp) >= TEMP_DELTA))
+    pending = true;
+  if (!lastSentOk || millis() - lastSentOk > HEARTBEAT_S * 1000UL) pending = true;
+}
+
+static void buildPacket() {
+  uint8_t f = 0;
+  if (PIR_PIN >= 0)  f |= SF_HAS_PIR  | (reportedMotion() ? SF_MOTION : 0);
+  if (DOOR_PIN >= 0) f |= SF_HAS_DOOR | (doorOpen ? SF_DOOR_OPEN : 0);
+  if (hasEnv && !isnan(temp)) f |= SF_HAS_ENV;
+  outPkt = PktSensor{{PKT_MAGIC, PKT_SENSOR, txSeq}, f,
+                     (int16_t)(isnan(temp) ? 0 : lroundf(temp * 100)),
+                     (uint16_t)(isnan(hum) ? 0 : lroundf(hum * 10)),
+                     (uint16_t)(isnan(press) ? 0 : lroundf(press * 10)),
+                     motionEvents, (int16_t)(ackRssi * 10),
+                     (uint16_t)(millis() / 60000UL)};
+}
+
+static void serviceSensorTx() {
+  if (!pending || state != ST_LINK) return;
+  if ((int32_t)(millis() - nextAttempt) < 0) return;
+  if (attempts >= 4) {
+    // Casa no contesta: descansa 15 s y vuelve a probar con el estado de entonces.
+    attempts = 0;
+    nextAttempt = millis() + 15000;
+    Serial.println("[garage] sin ACK de casa tras 4 intentos");
+    return;
+  }
+  if (Radio::dutyWaitMs()) return;
+  if (attempts == 0) { txSeq++; buildPacket(); }   // nuevo envío: foto del estado actual
+  Radio::send(&outPkt, sizeof outPkt);
+  attempts++;
+  // Espera del ACK: su tiempo en el aire + margen + algo aleatorio para no
+  // chocar siempre con lo mismo.
+  nextAttempt = millis() + Radio::airtimeMs(sizeof(PktSensAck)) + 400 + random(0, 600);
+}
+
+static void onSensorAck(uint8_t seq, const RxInfo& rx) {
+  if (seq != txSeq || !attempts) return;
+  ackRssi = rx.rssi;
+  attempts = 0;
+  pending = false;
+  lastSentOk = millis();
+  ackedMotion = outPkt.flags & SF_MOTION;
+  ackedDoor = outPkt.flags & SF_DOOR_OPEN;
+  ackedTemp = (outPkt.flags & SF_HAS_ENV) ? outPkt.temp100 / 100.0f : NAN;
+  // El pulso de movimiento ya está contado; si el PIR sigue activo, motionNow
+  // lo mantiene, y cuando baje se enviará "sin movimiento".
+  motionLatched = false;
+  Serial.printf("[garage] ACK %u (RSSI %.1f)\n", seq, rx.rssi);
+}
+
+// ---------------- Pantalla ----------------
 static void draw() {
-  char l0[24], l1[24], l2[24], l3[24], l4[24];
+  char l0[24], l1[24], l2[24], l3[24], l4[24], l5[24];
   const RadioParams& p = Radio::current();
-  snprintf(l0, sizeof l0, "GARAJE  %s", state == ST_CTRL ? "esperando" : "PRUEBA");
+  snprintf(l0, sizeof l0, "GARAJE  %s", state == ST_LINK ? "enlace" : "PRUEBA SF");
   snprintf(l1, sizeof l1, "SF%u BW%.0f CR4/%u %ddBm", p.sf, p.bw, p.cr, p.power);
-  snprintf(l2, sizeof l2, "test #%u  rx %u/%u", testId, rxCount, cfg.count);
-  snprintf(l3, sizeof l3, "RSSI %.1f dBm", lastRssi);
-  snprintf(l4, sizeof l4, "SNR  %.1f dB", lastSnr);
-  char l5[24];
-  if (lastRxMs) snprintf(l5, sizeof l5, "ult. rx hace %lus", (millis() - lastRxMs) / 1000);
-  else          snprintf(l5, sizeof l5, "%.3f MHz", LORA_FREQ_MHZ);
+  if (state == ST_TEST) {
+    snprintf(l2, sizeof l2, "test #%u  rx %u/%u", testId, rxCount, cfg.count);
+    snprintf(l3, sizeof l3, "RSSI %.1f dBm", lastRssi);
+    snprintf(l4, sizeof l4, "SNR  %.1f dB", lastSnr);
+    snprintf(l5, sizeof l5, " ");
+  } else {
+    snprintf(l2, sizeof l2, "Mov %s  Puerta %s",
+             PIR_PIN < 0 ? "--" : motionNow ? "SI" : "no",
+             DOOR_PIN < 0 ? "--" : doorOpen ? "ABIER" : "cerr");
+    if (hasEnv && !isnan(temp)) snprintf(l3, sizeof l3, "%.1fC %.0f%% %.0fhPa", temp, hum, press);
+    else snprintf(l3, sizeof l3, "sin BME280");
+    snprintf(l4, sizeof l4, "casa: %.0fdBm %.1fdB", lastRssi, lastSnr);
+    if (pending && attempts) snprintf(l5, sizeof l5, "enviando... (%u)", attempts);
+    else if (lastSentOk) snprintf(l5, sizeof l5, "ult. ACK hace %lus", (millis() - lastSentOk) / 1000);
+    else snprintf(l5, sizeof l5, "sin contacto con casa");
+  }
   Display::show(l0, l1, l2, l3, l4, l5);
 }
 
-static void backToCtrl() {
-  Radio::applyCtrl();
-  state = ST_CTRL;
-  Serial.printf("[garage] fin prueba #%u: rx=%u tx=%u -> canal control\n",
+// ---------------- Pruebas de SF ----------------
+static void backToLink() {
+  Radio::applyLink();
+  state = ST_LINK;
+  Serial.printf("[garage] fin prueba #%u: rx=%u tx=%u -> canal enlace\n",
                 testId, rxCount, txCount);
+  nextAttempt = millis() + random(500, 1500);  // deja a casa pedir el informe
   draw();
 }
 
-static void handleCtrl(const uint8_t* buf, const RxInfo& rx) {
+static void handleLink(const uint8_t* buf, const RxInfo& rx) {
   const PktHdr* h = (const PktHdr*)buf;
-  if (h->type == PKT_CFG && rx.len >= sizeof(PktCfg)) {
+  if (h->type == PKT_SENS_ACK) {
+    onSensorAck(h->testId, rx);
+  } else if (h->type == PKT_CFG && rx.len >= sizeof(PktCfg)) {
     memcpy(&cfg, buf, sizeof cfg);
     testId = cfg.h.testId;
     rxCount = txCount = 0;
@@ -57,8 +178,7 @@ static void handleCtrl(const uint8_t* buf, const RxInfo& rx) {
     delay(50);  // deja que el maestro pase a RX
     Radio::send(&ack, sizeof ack);
     RadioParams p{cfg.sf, cfg.bwKhz10 / 10.0f, cfg.cr, cfg.power};
-    if (!Radio::apply(p)) { Radio::applyCtrl(); return; }
-    // Misma ventana que usa el maestro, más margen
+    if (!Radio::apply(p)) { Radio::applyLink(); return; }
     testDeadline = millis() + (uint32_t)cfg.count * cfg.intervalMs + 3000;
     state = ST_TEST;
     draw();
@@ -88,24 +208,33 @@ static void handleTest(const uint8_t* buf, const RxInfo& rx) {
   Serial.printf("[garage] ping %u RSSI %.1f SNR %.2f ferr %.0fHz\n",
                 ping->seq, rx.rssi, rx.snr, rx.freqErr);
   draw();
-  if (ping->seq + 1 >= cfg.count) backToCtrl();
+  if (ping->seq + 1 >= cfg.count) backToLink();
 }
 
 void setup() {
   Serial.begin(115200);
   pinMode(LED_PIN, OUTPUT);
-  Display::begin();
+  if (PIR_PIN >= 0) pinMode(PIR_PIN, INPUT);
+  if (DOOR_PIN >= 0) pinMode(DOOR_PIN, INPUT_PULLUP);
+  Display::begin();  // también inicializa el bus I2C
   Display::show("GARAJE", "iniciando radio...");
+#if BME280_ADDR
+  hasEnv = bme.begin(BME280_ADDR, &Wire);
+  Serial.printf("[garage] BME280 %s\n", hasEnv ? "OK" : "no encontrado");
+#endif
   if (!Radio::begin()) {
     Display::show("GARAJE", "ERROR radio LoRa", "revisa placa/pines");
     while (true) delay(1000);
   }
-  Serial.println("[garage] listo, escuchando canal de control");
+  randomSeed(esp_random());
+  if (DOOR_PIN >= 0) doorOpen = digitalRead(DOOR_PIN) == DOOR_OPEN_LEVEL;
+  readEnv();
+  Serial.println("[garage] listo");
   draw();
 }
 
 void loop() {
-  static uint32_t lastDraw = 0;
+  static uint32_t lastDraw = 0, lastEnv = 0;
   uint8_t buf[64];
   RxInfo rx;
   if (Radio::poll(buf, sizeof buf, rx)) {
@@ -114,12 +243,18 @@ void loop() {
       lastSnr = rx.snr;
       lastRxMs = millis();
       digitalWrite(LED_PIN, HIGH);
-      if (state == ST_CTRL) handleCtrl(buf, rx);
+      if (state == ST_LINK) handleLink(buf, rx);
       else handleTest(buf, rx);
       digitalWrite(LED_PIN, LOW);
     }
   }
-  if (state == ST_TEST && (int32_t)(millis() - testDeadline) > 0) backToCtrl();
+  if (state == ST_TEST && (int32_t)(millis() - testDeadline) > 0) backToLink();
+
+  readInputs();
+  if (millis() - lastEnv > 10000) { lastEnv = millis(); readEnv(); }
+  checkChanges();
+  serviceSensorTx();
+
   if (millis() - lastDraw > 1000) { lastDraw = millis(); draw(); }
   delay(1);
 }
