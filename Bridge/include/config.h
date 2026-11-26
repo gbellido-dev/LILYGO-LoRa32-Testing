@@ -30,12 +30,11 @@
   #define OLED_RST  -1
   #define LED_PIN   25
 #endif
-#define BUTTON_PIN 0     // botón BOOT/IO0: en casa lanza un barrido por defecto
 
 // ---------------- Radio ----------------
 // 869.525 MHz está en la sub-banda g3 (869.40–869.65 MHz) de la UE:
 // ciclo de trabajo 10 % y hasta 27 dBm ERP. Con 868.1 MHz el límite es 1 %
-// y un barrido con SF12 tardaría muchísimo.
+// y con SF altos habría mucha espera entre mensajes.
 #ifndef LORA_FREQ_MHZ
 #define LORA_FREQ_MHZ   869.525
 #endif
@@ -47,12 +46,13 @@
 #define DUTY_CYCLE      0.10f
 #endif
 
-// Canal de ENLACE: el que usan siempre los dos nodos. Por él viajan los
-// sensores del garaje y la negociación de las pruebas de SF.
-// Empieza con SF12 (lo más robusto). Cuando el barrido te diga qué SF llega
-// bien con margen, bájalo aquí (en los DOS nodos): menos latencia y menos
-// ciclo de trabajo. Por ejemplo, el SF más bajo con ~100 % y SNR >= límite+5 dB.
+// Parámetros del ENLACE garaje <-> casa. Iguales en los DOS nodos.
+// Elige el SF con el proyecto Testing: el más bajo con ~100 % de entrega y
+// SNR >= límite + 5 dB. Más SF = más alcance, pero más latencia y espera.
+//   SF7 ~ 40 ms/mensaje · SF9 ~ 150 ms · SF12 ~ 1.2 s
+#ifndef LINK_SF
 #define LINK_SF     12
+#endif
 #define LINK_BW     125.0
 #define LINK_CR     5
 #define LINK_POWER  17   // dBm (máx. SX1276 PA_BOOST = 20)

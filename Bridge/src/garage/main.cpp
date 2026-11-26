@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------------------
-//  Nodo GARAJE: solo alimentación.
-//   - Lee sensores (PIR, puerta, BME280) y envía su estado por LoRa al nodo
-//     de casa, con confirmación (ACK) y reintentos.
-//   - Atiende las pruebas de SF que lanza casa (ping/pong).
+//  Nodo GARAJE (Bridge): solo alimentación.
+//  Lee sensores (PIR, puerta, BME280) y envía su estado por LoRa al nodo de
+//  casa, con confirmación (ACK) y reintentos.
 // ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include "config.h"
@@ -14,17 +13,7 @@
   #include <Adafruit_BME280.h>
 #endif
 
-enum State { ST_LINK, ST_TEST };
-static State state = ST_LINK;
-
-// ---------------- Pruebas de SF ----------------
-static uint8_t  testId = 0;
-static PktCfg   cfg{};
-static uint16_t rxCount = 0, txCount = 0;
-static float    rssiSum = 0, snrSum = 0;
-static uint32_t testDeadline = 0;
 static float    lastRssi = 0, lastSnr = 0;
-static uint32_t lastRxMs = 0;
 
 // ---------------- Sensores ----------------
 #if BME280_ADDR
@@ -94,7 +83,7 @@ static void buildPacket() {
 }
 
 static void serviceSensorTx() {
-  if (!pending || state != ST_LINK) return;
+  if (!pending) return;
   if ((int32_t)(millis() - nextAttempt) < 0) return;
   if (attempts >= 4) {
     // Casa no contesta: descansa 15 s y vuelve a probar con el estado de entonces.
@@ -131,84 +120,18 @@ static void onSensorAck(uint8_t seq, const RxInfo& rx) {
 static void draw() {
   char l0[24], l1[24], l2[24], l3[24], l4[24], l5[24];
   const RadioParams& p = Radio::current();
-  snprintf(l0, sizeof l0, "GARAJE  %s", state == ST_LINK ? "enlace" : "PRUEBA SF");
+  snprintf(l0, sizeof l0, "GARAJE  bridge");
   snprintf(l1, sizeof l1, "SF%u BW%.0f CR4/%u %ddBm", p.sf, p.bw, p.cr, p.power);
-  if (state == ST_TEST) {
-    snprintf(l2, sizeof l2, "test #%u  rx %u/%u", testId, rxCount, cfg.count);
-    snprintf(l3, sizeof l3, "RSSI %.1f dBm", lastRssi);
-    snprintf(l4, sizeof l4, "SNR  %.1f dB", lastSnr);
-    snprintf(l5, sizeof l5, " ");
-  } else {
-    snprintf(l2, sizeof l2, "Mov %s  Puerta %s",
-             PIR_PIN < 0 ? "--" : motionNow ? "SI" : "no",
-             DOOR_PIN < 0 ? "--" : doorOpen ? "ABIER" : "cerr");
-    if (hasEnv && !isnan(temp)) snprintf(l3, sizeof l3, "%.1fC %.0f%% %.0fhPa", temp, hum, press);
-    else snprintf(l3, sizeof l3, "sin BME280");
-    snprintf(l4, sizeof l4, "casa: %.0fdBm %.1fdB", lastRssi, lastSnr);
-    if (pending && attempts) snprintf(l5, sizeof l5, "enviando... (%u)", attempts);
-    else if (lastSentOk) snprintf(l5, sizeof l5, "ult. ACK hace %lus", (millis() - lastSentOk) / 1000);
-    else snprintf(l5, sizeof l5, "sin contacto con casa");
-  }
+  snprintf(l2, sizeof l2, "Mov %s  Puerta %s",
+           PIR_PIN < 0 ? "--" : motionNow ? "SI" : "no",
+           DOOR_PIN < 0 ? "--" : doorOpen ? "ABIER" : "cerr");
+  if (hasEnv && !isnan(temp)) snprintf(l3, sizeof l3, "%.1fC %.0f%% %.0fhPa", temp, hum, press);
+  else snprintf(l3, sizeof l3, "sin BME280");
+  snprintf(l4, sizeof l4, "casa: %.0fdBm %.1fdB", lastRssi, lastSnr);
+  if (pending && attempts) snprintf(l5, sizeof l5, "enviando... (%u)", attempts);
+  else if (lastSentOk) snprintf(l5, sizeof l5, "ult. ACK hace %lus", (millis() - lastSentOk) / 1000);
+  else snprintf(l5, sizeof l5, "sin contacto con casa");
   Display::show(l0, l1, l2, l3, l4, l5);
-}
-
-// ---------------- Pruebas de SF ----------------
-static void backToLink() {
-  Radio::applyLink();
-  state = ST_LINK;
-  Serial.printf("[garage] fin prueba #%u: rx=%u tx=%u -> canal enlace\n",
-                testId, rxCount, txCount);
-  nextAttempt = millis() + random(500, 1500);  // deja a casa pedir el informe
-  draw();
-}
-
-static void handleLink(const uint8_t* buf, const RxInfo& rx) {
-  const PktHdr* h = (const PktHdr*)buf;
-  if (h->type == PKT_SENS_ACK) {
-    onSensorAck(h->testId, rx);
-  } else if (h->type == PKT_CFG && rx.len >= sizeof(PktCfg)) {
-    memcpy(&cfg, buf, sizeof cfg);
-    testId = cfg.h.testId;
-    rxCount = txCount = 0;
-    rssiSum = snrSum = 0;
-    Serial.printf("[garage] CFG #%u: SF%u BW%.1f CR4/%u %ddBm n=%u int=%ums\n",
-                  testId, cfg.sf, cfg.bwKhz10 / 10.0, cfg.cr, cfg.power,
-                  cfg.count, cfg.intervalMs);
-    PktCfgAck ack{{PKT_MAGIC, PKT_CFG_ACK, testId}};
-    delay(50);  // deja que el maestro pase a RX
-    Radio::send(&ack, sizeof ack);
-    RadioParams p{cfg.sf, cfg.bwKhz10 / 10.0f, cfg.cr, cfg.power};
-    if (!Radio::apply(p)) { Radio::applyLink(); return; }
-    testDeadline = millis() + (uint32_t)cfg.count * cfg.intervalMs + 3000;
-    state = ST_TEST;
-    draw();
-  } else if (h->type == PKT_REP_REQ && h->testId == testId) {
-    PktReport r{{PKT_MAGIC, PKT_REPORT, testId}, rxCount, txCount,
-                (int16_t)(rxCount ? rssiSum / rxCount * 10 : 0),
-                (int16_t)(rxCount ? snrSum / rxCount * 10 : 0)};
-    delay(50);
-    Radio::send(&r, sizeof r);
-    Serial.printf("[garage] REPORT #%u enviado\n", testId);
-  }
-}
-
-static void handleTest(const uint8_t* buf, const RxInfo& rx) {
-  const PktHdr* h = (const PktHdr*)buf;
-  if (h->type != PKT_PING || h->testId != testId || rx.len < sizeof(PktPing)) return;
-  const PktPing* ping = (const PktPing*)buf;
-  rxCount++;
-  // Re-sincroniza la ventana con el maestro a cada ping recibido
-  testDeadline = millis() + (uint32_t)(cfg.count - ping->seq) * cfg.intervalMs + 3000;
-  rssiSum += rx.rssi;
-  snrSum += rx.snr;
-  PktPong pong{{PKT_MAGIC, PKT_PONG, testId}, ping->seq,
-               (int16_t)(rx.rssi * 10), (int8_t)(rx.snr * 4), rxCount};
-  delay(20);
-  if (Radio::send(&pong, sizeof pong)) txCount++;
-  Serial.printf("[garage] ping %u RSSI %.1f SNR %.2f ferr %.0fHz\n",
-                ping->seq, rx.rssi, rx.snr, rx.freqErr);
-  draw();
-  if (ping->seq + 1 >= cfg.count) backToLink();
 }
 
 void setup() {
@@ -237,18 +160,14 @@ void loop() {
   static uint32_t lastDraw = 0, lastEnv = 0;
   uint8_t buf[64];
   RxInfo rx;
-  if (Radio::poll(buf, sizeof buf, rx)) {
-    if (rx.len >= sizeof(PktHdr) && buf[0] == PKT_MAGIC) {
-      lastRssi = rx.rssi;
-      lastSnr = rx.snr;
-      lastRxMs = millis();
-      digitalWrite(LED_PIN, HIGH);
-      if (state == ST_LINK) handleLink(buf, rx);
-      else handleTest(buf, rx);
-      digitalWrite(LED_PIN, LOW);
-    }
+  if (Radio::poll(buf, sizeof buf, rx) && rx.len >= sizeof(PktHdr) && buf[0] == PKT_MAGIC &&
+      buf[1] == PKT_SENS_ACK) {
+    lastRssi = rx.rssi;
+    lastSnr = rx.snr;
+    digitalWrite(LED_PIN, HIGH);
+    onSensorAck(buf[2], rx);
+    digitalWrite(LED_PIN, LOW);
   }
-  if (state == ST_TEST && (int32_t)(millis() - testDeadline) > 0) backToLink();
 
   readInputs();
   if (millis() - lastEnv > 10000) { lastEnv = millis(); readEnv(); }

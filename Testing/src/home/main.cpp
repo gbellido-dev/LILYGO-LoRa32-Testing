@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------------------
-//  Nodo CASA: WiFi + MQTT.
-//   - Puente garaje -> Home Assistant: confirma (ACK) los paquetes de sensores
-//     del garaje y los publica con MQTT Discovery.
-//   - Barridos de SF bajo demanda (Node-RED, botón BOOT o puerto serie).
+//  Nodo CASA: WiFi + MQTT. Recibe órdenes desde Node-RED (o botón BOOT /
+//  puerto serie), ejecuta barridos de SF contra el nodo del garaje y publica
+//  los resultados de cada ping y un resumen por SF.
 // ---------------------------------------------------------------------------
 #include <Arduino.h>
 #include <WiFi.h>
@@ -18,10 +17,6 @@
 #else
   #warning "Falta include/secrets.h: copia include/secrets.h.example"
   #include "secrets.h.example"
-#endif
-
-#ifndef HA_PREFIX
-#define HA_PREFIX "homeassistant"   // prefijo de MQTT Discovery de Home Assistant
 #endif
 
 static WiFiClient   net;
@@ -65,159 +60,6 @@ static void draw(const char* l3 = nullptr, const char* l4 = nullptr, const char*
   Display::show(l0, l1, l2, l3, l4, l5);
 }
 
-// ---------------- Puente garaje -> Home Assistant ----------------
-struct Garage {
-  bool     valid = false;
-  bool     online = false;
-  uint8_t  flags = 0;
-  uint8_t  announced = 0;   // capacidades ya anunciadas a HA (SF_HAS_*)
-  float    temp = NAN, hum = NAN, press = NAN;
-  uint16_t events = 0, uptime = 0;
-  float    rssi = 0, snr = 0, rssiUp = 0;
-  uint32_t lastRx = 0;
-};
-static Garage g;
-
-static void pubRaw(const String& topic, const char* payload, bool retain) {
-  if (mqtt.connected()) mqtt.publish(topic.c_str(), payload, retain);
-}
-
-static void haEntity(const char* comp, const char* obj, const char* name,
-                     const char* devClass, const char* unit, const char* tpl,
-                     bool diagnostic = false, const char* stateClass = "measurement") {
-  JsonDocument d;
-  d["name"] = name;
-  d["unique_id"] = String("lora32_garage_") + obj;
-  d["object_id"] = String("garaje_") + obj;
-  d["state_topic"] = T("garage/state");
-  d["value_template"] = tpl;
-  if (devClass) d["device_class"] = devClass;
-  if (!strcmp(comp, "sensor")) {
-    if (unit) d["unit_of_measurement"] = unit;
-    if (stateClass) d["state_class"] = stateClass;
-  }
-  if (diagnostic) d["entity_category"] = "diagnostic";
-  // Disponible solo si el nodo de casa está conectado Y oye al garaje
-  JsonArray av = d["availability"].to<JsonArray>();
-  av.add<JsonObject>()["topic"] = T("status");
-  av.add<JsonObject>()["topic"] = T("garage/availability");
-  d["availability_mode"] = "all";
-  JsonObject dev = d["device"].to<JsonObject>();
-  dev["identifiers"].to<JsonArray>().add("lora32_garage");
-  dev["name"] = "Garaje (LoRa)";
-  dev["manufacturer"] = "LILYGO";
-  dev["model"] = "LoRa32 SX1276";
-  dev["via_device"] = "lora32_home";
-  char out[1024];
-  serializeJson(d, out, sizeof out);
-  pubRaw(String(HA_PREFIX "/") + comp + "/lora32_garage/" + obj + "/config", out, true);
-}
-
-static void haAnnounce() {
-  if (!mqtt.connected() || !g.valid) return;
-  // Dispositivo "puente" (el propio nodo de casa) para via_device
-  {
-    JsonDocument d;
-    d["name"] = "Enlace LoRa";
-    d["unique_id"] = "lora32_home_status";
-    d["state_topic"] = T("status");
-    d["payload_on"] = "online";
-    d["payload_off"] = "offline";
-    d["device_class"] = "connectivity";
-    d["entity_category"] = "diagnostic";
-    JsonObject dev = d["device"].to<JsonObject>();
-    dev["identifiers"].to<JsonArray>().add("lora32_home");
-    dev["name"] = "Puente LoRa (casa)";
-    dev["manufacturer"] = "LILYGO";
-    dev["model"] = "LoRa32 SX1276";
-    char out[600];
-    serializeJson(d, out, sizeof out);
-    pubRaw(HA_PREFIX "/binary_sensor/lora32_home/status/config", out, true);
-  }
-  if (g.flags & SF_HAS_PIR)
-    haEntity("binary_sensor", "motion", "Movimiento", "motion", nullptr,
-             "{{ 'ON' if value_json.motion else 'OFF' }}");
-  if (g.flags & SF_HAS_DOOR)
-    haEntity("binary_sensor", "door", "Puerta", "door", nullptr,
-             "{{ 'ON' if value_json.door_open else 'OFF' }}");
-  if (g.flags & SF_HAS_ENV) {
-    haEntity("sensor", "temperature", "Temperatura", "temperature", "°C",
-             "{{ value_json.temperature }}");
-    haEntity("sensor", "humidity", "Humedad", "humidity", "%",
-             "{{ value_json.humidity }}");
-    haEntity("sensor", "pressure", "Presión", "atmospheric_pressure", "hPa",
-             "{{ value_json.pressure }}");
-  }
-  if (g.flags & SF_HAS_PIR)
-    haEntity("sensor", "motion_events", "Activaciones PIR", nullptr, nullptr,
-             "{{ value_json.motion_events }}", true, "total_increasing");
-  haEntity("sensor", "rssi", "RSSI garaje→casa", "signal_strength", "dBm",
-           "{{ value_json.rssi }}", true);
-  haEntity("sensor", "snr", "SNR garaje→casa", "signal_strength", "dB",
-           "{{ value_json.snr }}", true);
-  haEntity("sensor", "rssi_up", "RSSI casa→garaje", "signal_strength", "dBm",
-           "{{ value_json.rssi_up }}", true);
-  haEntity("sensor", "uptime", "Tiempo encendido", "duration", "min",
-           "{{ value_json.uptime_min }}", true, "total_increasing");
-  g.announced = g.flags & (SF_HAS_PIR | SF_HAS_DOOR | SF_HAS_ENV);
-}
-
-static void setGarageOnline(bool on) {
-  g.online = on;
-  pubRaw(T("garage/availability"), on ? "online" : "offline", true);
-}
-
-static void publishGarage() {
-  JsonDocument d;
-  if (g.flags & SF_HAS_PIR) d["motion"] = (bool)(g.flags & SF_MOTION);
-  if (g.flags & SF_HAS_DOOR) d["door_open"] = (bool)(g.flags & SF_DOOR_OPEN);
-  if (g.flags & SF_HAS_ENV) {
-    d["temperature"] = roundf(g.temp * 10) / 10;
-    d["humidity"] = roundf(g.hum);
-    d["pressure"] = roundf(g.press * 10) / 10;
-  }
-  d["motion_events"] = g.events;
-  d["rssi"] = roundf(g.rssi);
-  d["snr"] = roundf(g.snr * 10) / 10;
-  if (g.rssiUp) d["rssi_up"] = roundf(g.rssiUp);
-  d["uptime_min"] = g.uptime;
-  publish("garage/state", d, true);
-}
-
-// Paquete de sensores del garaje. Solo se confirma si estamos en el canal de
-// enlace y libres (fuera de un barrido); si no, el garaje lo reintentará.
-static void handleSensor(const uint8_t* buf, const RxInfo& rx, bool ack) {
-  if (rx.len < sizeof(PktSensor)) return;
-  PktSensor p;
-  memcpy(&p, buf, sizeof p);
-  // Si el ciclo de trabajo no nos deja contestar ya, no bloqueamos: se publica
-  // igual y el garaje lo reenviará.
-  if (ack && Radio::dutyWaitMs() < 100) {
-    PktSensAck a{{PKT_MAGIC, PKT_SENS_ACK, p.h.testId}};
-    delay(30);
-    Radio::send(&a, sizeof a);
-  }
-  bool capsChanged = (p.flags & (SF_HAS_PIR | SF_HAS_DOOR | SF_HAS_ENV)) != g.announced;
-  g.valid = true;
-  g.flags = p.flags;
-  g.temp = p.temp100 / 100.0f;
-  g.hum = p.hum10 / 10.0f;
-  g.press = p.press10 / 10.0f;
-  g.events = p.motionEvents;
-  g.uptime = p.uptimeMin;
-  g.rssiUp = p.ackRssi10 / 10.0f;
-  g.rssi = rx.rssi;
-  g.snr = rx.snr;
-  g.lastRx = millis();
-  if (capsChanged) haAnnounce();
-  if (!g.online) setGarageOnline(true);
-  publishGarage();
-}
-
-static void checkGarageTimeout() {
-  if (g.online && millis() - g.lastRx > HEARTBEAT_S * 3000UL + 30000) setGarageOnline(false);
-}
-
 static void onMqtt(char* topic, byte* payload, unsigned int len) {
   JsonDocument doc;
   if (deserializeJson(doc, payload, len)) { Serial.println("[cmd] JSON no válido"); return; }
@@ -246,11 +88,8 @@ static void onMqtt(char* topic, byte* payload, unsigned int len) {
   if (running) stopRequested = true;  // sustituye al barrido en curso
 }
 
-static void drawIdle();
-
 static void connectivity() {
   static uint32_t lastTry = 0;
-  checkGarageTimeout();
   if (WiFi.status() != WL_CONNECTED) return;  // WiFi reconecta sola
   if (mqtt.connected()) { mqtt.loop(); return; }
   if (millis() - lastTry < 5000) return;
@@ -263,7 +102,6 @@ static void connectivity() {
     mqtt.publish(T("status").c_str(), "online", true);
     mqtt.subscribe(T("cmd").c_str());
     Serial.println("[mqtt] conectado");
-    if (g.valid) { haAnnounce(); setGarageOnline(g.online); publishGarage(); }
   }
 }
 
@@ -289,11 +127,6 @@ static bool serviceWait(uint32_t ms) {
   do {
     connectivity();
     checkLocalInputs();
-    uint8_t b[64];
-    RxInfo r;
-    if (Radio::poll(b, sizeof b, r) && r.len >= sizeof(PktHdr) && b[0] == PKT_MAGIC &&
-        b[1] == PKT_SENSOR)
-      handleSensor(b, r, false);
     if (stopRequested) return false;
     delay(2);
   } while (millis() - t0 < ms);
@@ -321,12 +154,11 @@ static bool waitFor(uint8_t type, uint8_t tid, uint8_t* buf, size_t max,
                     RxInfo& rx, uint32_t timeoutMs) {
   uint32_t t0 = millis();
   while (millis() - t0 < timeoutMs) {
-    bool got = Radio::poll(buf, max, rx) && rx.len >= sizeof(PktHdr) && buf[0] == PKT_MAGIC;
-    if (got && buf[1] == type && buf[2] == tid) {
+    if (Radio::poll(buf, max, rx) && rx.len >= sizeof(PktHdr) &&
+        buf[0] == PKT_MAGIC && buf[1] == type && buf[2] == tid) {
       noteGarageTx(rx.len);
       return true;
     }
-    if (got && buf[1] == PKT_SENSOR) handleSensor(buf, rx, false);
     connectivity();
     if (stopRequested) return false;
     delay(1);
@@ -343,7 +175,7 @@ static void runTest(const Sweep& s, uint8_t sf) {
   Radio::apply(p);
   uint32_t toaPing = Radio::airtimeMs(sizeof(PktPing));
   uint32_t toaPong = Radio::airtimeMs(sizeof(PktPong));
-  Radio::applyLink();
+  Radio::applyCtrl();
   uint32_t toaCtrl = Radio::airtimeMs(sizeof(PktReport));
 
   uint32_t toaMax = max(toaPing, toaPong);
@@ -416,7 +248,7 @@ static void runTest(const Sweep& s, uint8_t sf) {
   bool aborted = stopRequested;
 
   // 3) De vuelta a control y pedir el informe del garaje
-  Radio::applyLink();
+  Radio::applyCtrl();
   if (!lastPongOk && !aborted) {
     // el garaje puede seguir en modo prueba hasta que venza su ventana
     serviceWait(interval + 3200);
@@ -476,27 +308,11 @@ static void runSweep(const Sweep& s) {
     d["event"] = stopRequested ? "stopped" : "end"; d["sweep"] = sweepId;
     publish("sweep", d);
   } while (s.loop && !stopRequested);
-  Radio::applyLink();
+  Radio::applyCtrl();
   stopRequested = false;
   running = false;
   snprintf(statusLine, sizeof statusLine, "en espera");
-  drawIdle();
-}
-
-static void drawIdle() {
-  char l3[24], l4[24], l5[24];
-  if (!g.valid) {
-    draw("Garaje: sin datos", "BOOT = barrido SF7-12", " ");
-    return;
-  }
-  snprintf(l3, sizeof l3, "Mov %s Puerta %s",
-           !(g.flags & SF_HAS_PIR) ? "--" : (g.flags & SF_MOTION) ? "SI" : "no",
-           !(g.flags & SF_HAS_DOOR) ? "--" : (g.flags & SF_DOOR_OPEN) ? "ABIER" : "cerr");
-  if (g.flags & SF_HAS_ENV) snprintf(l4, sizeof l4, "%.1fC %.0f%% %.0fhPa", g.temp, g.hum, g.press);
-  else snprintf(l4, sizeof l4, "%.0fdBm %.1fdB", g.rssi, g.snr);
-  snprintf(l5, sizeof l5, "%s hace %lus", g.online ? "garaje" : "PERDIDO",
-           (unsigned long)((millis() - g.lastRx) / 1000));
-  draw(l3, l4, l5);
+  draw();
 }
 
 void setup() {
@@ -517,22 +333,12 @@ void setup() {
   mqtt.setBufferSize(1024);
   mqtt.setCallback(onMqtt);
   Serial.println("[home] listo. 'start' / 'stop' / JSON por serie, o botón BOOT");
-  drawIdle();
+  draw("BOOT = barrido SF7-12", "o orden desde Node-RED");
 }
 
 void loop() {
   connectivity();
   checkLocalInputs();
-  // Puente: paquetes del garaje en el canal de enlace
-  uint8_t buf[64];
-  RxInfo rx;
-  if (Radio::poll(buf, sizeof buf, rx) && rx.len >= sizeof(PktHdr) && buf[0] == PKT_MAGIC &&
-      buf[1] == PKT_SENSOR) {
-    digitalWrite(LED_PIN, HIGH);
-    handleSensor(buf, rx, true);
-    digitalWrite(LED_PIN, LOW);
-    drawIdle();
-  }
   if (startRequested) {
     startRequested = false;
     Sweep s = pending;
@@ -541,7 +347,7 @@ void loop() {
   static uint32_t lastDraw = 0;
   if (millis() - lastDraw > 2000) {
     lastDraw = millis();
-    drawIdle();
+    draw("BOOT = barrido SF7-12", "o orden desde Node-RED");
   }
   delay(5);
 }
