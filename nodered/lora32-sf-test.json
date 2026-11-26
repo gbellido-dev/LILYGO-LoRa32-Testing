@@ -1,0 +1,986 @@
+[
+  {
+    "id": "a1f0000000000001",
+    "type": "tab",
+    "label": "LoRa32 SF test",
+    "disabled": false,
+    "info": "Prueba punto a punto de SF entre dos LILYGO LoRa32.\nVer README del repositorio."
+  },
+  {
+    "id": "b1f0000000000001",
+    "type": "mqtt-broker",
+    "name": "Broker local",
+    "broker": "localhost",
+    "port": "1883",
+    "clientid": "",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": "",
+    "willMsg": {},
+    "userProps": "",
+    "sessionExpiry": ""
+  },
+  {
+    "id": "c1f0000000000001",
+    "type": "ui-base",
+    "name": "LoRa32",
+    "path": "/dashboard",
+    "appIcon": "",
+    "includeClientData": true,
+    "acceptsClientConfig": [
+      "ui-notification",
+      "ui-control"
+    ],
+    "showPathInSidebar": false,
+    "headerContent": "page",
+    "navigationStyle": "default",
+    "titleBarStyle": "default"
+  },
+  {
+    "id": "c1f0000000000002",
+    "type": "ui-theme",
+    "name": "Tema LoRa",
+    "colors": {
+      "surface": "#1b4965",
+      "primary": "#0d74ce",
+      "bgPage": "#f4f6f8",
+      "groupBg": "#ffffff",
+      "groupOutline": "#d9d9e0"
+    },
+    "sizes": {
+      "density": "default",
+      "pagePadding": "12px",
+      "groupGap": "12px",
+      "groupBorderRadius": "6px",
+      "widgetGap": "12px"
+    }
+  },
+  {
+    "id": "c1f0000000000003",
+    "type": "ui-page",
+    "name": "Prueba SF",
+    "ui": "c1f0000000000001",
+    "path": "/sf",
+    "icon": "radio-tower",
+    "layout": "grid",
+    "theme": "c1f0000000000002",
+    "breakpoints": [
+      {
+        "name": "Default",
+        "px": "0",
+        "cols": "3"
+      },
+      {
+        "name": "Tablet",
+        "px": "576",
+        "cols": "6"
+      },
+      {
+        "name": "Small Desktop",
+        "px": "768",
+        "cols": "9"
+      },
+      {
+        "name": "Desktop",
+        "px": "1024",
+        "cols": "12"
+      }
+    ],
+    "order": 1,
+    "className": "",
+    "visible": "true",
+    "disabled": "false"
+  },
+  {
+    "id": "d1f0000000000001",
+    "type": "ui-group",
+    "name": "Control",
+    "page": "c1f0000000000003",
+    "width": "4",
+    "height": "1",
+    "order": 1,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "d1f0000000000002",
+    "type": "ui-group",
+    "name": "Entrega de paquetes por SF (%)",
+    "page": "c1f0000000000003",
+    "width": "8",
+    "height": "1",
+    "order": 2,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "d1f0000000000003",
+    "type": "ui-group",
+    "name": "Resumen por SF",
+    "page": "c1f0000000000003",
+    "width": "12",
+    "height": "1",
+    "order": 3,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "d1f0000000000004",
+    "type": "ui-group",
+    "name": "RSSI por ping (dBm)",
+    "page": "c1f0000000000003",
+    "width": "6",
+    "height": "1",
+    "order": 4,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "d1f0000000000005",
+    "type": "ui-group",
+    "name": "SNR por ping (dB)",
+    "page": "c1f0000000000003",
+    "width": "6",
+    "height": "1",
+    "order": 5,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "d1f0000000000006",
+    "type": "ui-group",
+    "name": "RSSI medio por SF (dBm)",
+    "page": "c1f0000000000003",
+    "width": "6",
+    "height": "1",
+    "order": 6,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "d1f0000000000007",
+    "type": "ui-group",
+    "name": "SNR medio por SF (dB)",
+    "page": "c1f0000000000003",
+    "width": "6",
+    "height": "1",
+    "order": 7,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "e1f0000000000001",
+    "type": "mqtt in",
+    "name": "",
+    "topic": "lora32/status",
+    "qos": "0",
+    "datatype": "utf8",
+    "broker": "b1f0000000000001",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 60,
+    "wires": [
+      [
+        "e1f0000000000002"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000002",
+    "type": "ui-text",
+    "group": "d1f0000000000001",
+    "order": 1,
+    "width": 0,
+    "height": 0,
+    "name": "Estado nodo casa",
+    "label": "Nodo casa",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "style": false,
+    "font": "",
+    "fontSize": 16,
+    "color": "#717171",
+    "wrapText": false,
+    "className": "",
+    "x": 420,
+    "y": 60,
+    "wires": [],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000003",
+    "type": "mqtt in",
+    "name": "",
+    "topic": "lora32/sweep",
+    "qos": "0",
+    "datatype": "json",
+    "broker": "b1f0000000000001",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 110,
+    "wires": [
+      [
+        "e1f0000000000004"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000004",
+    "type": "function",
+    "name": "evento barrido",
+    "func": "const p = msg.payload;\nconst sf = (p.sf || []).join(',');\nconst txt = p.event === 'start' ? `En curso (SF ${sf}, ${p.count} pings, ${p.power} dBm)`\n          : p.event === 'end' ? 'Terminado' : 'Parado';\nconst out = [{ payload: txt }, null];\nif (p.event === 'start') out[1] = { payload: [] };   // limpia gráficas de pings\nreturn out;",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 110,
+    "wires": [
+      [
+        "e1f0000000000005"
+      ],
+      [
+        "f1f0000000000011",
+        "f1f0000000000012"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000005",
+    "type": "ui-text",
+    "group": "d1f0000000000001",
+    "order": 2,
+    "width": 0,
+    "height": 0,
+    "name": "Estado barrido",
+    "label": "Barrido",
+    "format": "{{msg.payload}}",
+    "layout": "row-spread",
+    "style": false,
+    "font": "",
+    "fontSize": 16,
+    "color": "#717171",
+    "wrapText": true,
+    "className": "",
+    "x": 640,
+    "y": 100,
+    "wires": [],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000014",
+    "type": "ui-event",
+    "ui": "c1f0000000000001",
+    "name": "al abrir la página",
+    "x": 150,
+    "y": 140,
+    "wires": [
+      [
+        "e1f0000000000015"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000015",
+    "type": "function",
+    "name": "rellenar formulario",
+    "func": "if (msg.topic !== '$pageview') return null;\nmsg.payload = flow.get('form') || { sf: '7,8,9,10,11,12', count: 20, power: 14, bw: 125, cr: 5, loop: false };\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 360,
+    "y": 140,
+    "wires": [
+      [
+        "e1f0000000000010"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000010",
+    "type": "ui-form",
+    "name": "Parámetros",
+    "group": "d1f0000000000001",
+    "label": "Nuevo barrido",
+    "order": 3,
+    "width": 0,
+    "height": 0,
+    "options": [
+      {
+        "label": "SF (separados por comas)",
+        "key": "sf",
+        "type": "text",
+        "required": true,
+        "rows": null
+      },
+      {
+        "label": "Pings por SF",
+        "key": "count",
+        "type": "number",
+        "required": true,
+        "rows": null
+      },
+      {
+        "label": "Potencia TX (dBm, 2-20)",
+        "key": "power",
+        "type": "number",
+        "required": true,
+        "rows": null
+      },
+      {
+        "label": "Ancho de banda (kHz)",
+        "key": "bw",
+        "type": "number",
+        "required": true,
+        "rows": null
+      },
+      {
+        "label": "Coding rate 4/x (5-8)",
+        "key": "cr",
+        "type": "number",
+        "required": true,
+        "rows": null
+      },
+      {
+        "label": "Repetir en bucle",
+        "key": "loop",
+        "type": "switch",
+        "required": false,
+        "rows": null
+      }
+    ],
+    "formValue": {
+      "sf": "7,8,9,10,11,12",
+      "count": 20,
+      "power": 14,
+      "bw": 125,
+      "cr": 5,
+      "loop": false
+    },
+    "payload": "",
+    "submit": "Lanzar barrido",
+    "cancel": "",
+    "resetOnSubmit": false,
+    "topic": "topic",
+    "topicType": "msg",
+    "splitLayout": "",
+    "className": "",
+    "passthru": false,
+    "dropdownOptions": [],
+    "x": 150,
+    "y": 180,
+    "wires": [
+      [
+        "e1f0000000000011"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000011",
+    "type": "function",
+    "name": "formulario → orden",
+    "func": "const f = msg.payload;\nflow.set('form', f);   // recordar últimos valores\nconst sf = String(f.sf).split(/[ ,;]+/).map(Number).filter(v => v >= 6 && v <= 12);\nif (!sf.length) { node.warn('SF no válidos'); return null; }\nmsg.payload = {\n    action: 'start', sf,\n    count: Number(f.count) || 20,\n    power: Number(f.power) || 14,\n    bw: Number(f.bw) || 125,\n    cr: Number(f.cr) || 5,\n    loop: !!f.loop\n};\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 180,
+    "wires": [
+      [
+        "e1f0000000000013"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000012",
+    "type": "ui-button",
+    "group": "d1f0000000000001",
+    "name": "Parar",
+    "label": "Parar barrido",
+    "order": 4,
+    "width": 0,
+    "height": 0,
+    "emulateClick": false,
+    "tooltip": "",
+    "color": "",
+    "bgcolor": "",
+    "className": "",
+    "icon": "stop",
+    "iconPosition": "left",
+    "payload": "{\"action\":\"stop\"}",
+    "payloadType": "json",
+    "topic": "topic",
+    "topicType": "msg",
+    "buttonColor": "red",
+    "textColor": "",
+    "iconColor": "",
+    "enableClick": true,
+    "enablePointerdown": false,
+    "pointerdownPayload": "",
+    "pointerdownPayloadType": "str",
+    "enablePointerup": false,
+    "pointerupPayload": "",
+    "pointerupPayloadType": "str",
+    "x": 150,
+    "y": 240,
+    "wires": [
+      [
+        "e1f0000000000013"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "e1f0000000000013",
+    "type": "mqtt out",
+    "name": "orden → nodo casa",
+    "topic": "lora32/cmd",
+    "qos": "1",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "b1f0000000000001",
+    "x": 650,
+    "y": 210,
+    "wires": [],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000001",
+    "type": "mqtt in",
+    "name": "",
+    "topic": "lora32/summary",
+    "qos": "0",
+    "datatype": "json",
+    "broker": "b1f0000000000001",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 320,
+    "wires": [
+      [
+        "f1f0000000000002"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000002",
+    "type": "function",
+    "name": "resumen por SF",
+    "func": "// Guarda el último resumen de cada SF y regenera tabla y gráficas\nconst s = msg.payload;\nconst all = flow.get('summary') || {};\nall['SF' + s.sf] = s;\nflow.set('summary', all);\n\nconst r1 = v => v === undefined ? null : Math.round(v * 10) / 10;\nconst pct = v => Math.round((v || 0) * 1000) / 10;\nconst keys = Object.keys(all).sort((a, b) => all[a].sf - all[b].sf);\n\nconst table = keys.map(k => {\n    const x = all[k];\n    return {\n        SF: x.sf,\n        'ToA ms': x.toa_ms,\n        'Enviados': x.sent,\n        'Oídos': x.garage_rx,\n        'Pongs': x.pongs,\n        '% ↑': pct(x.pdr_up),\n        '% ↓': pct(x.pdr_dn),\n        '% ida+vuelta': pct(x.pdr_rt),\n        'RSSI ↑': r1(x.rssi_up_all ?? x.rssi_up),\n        'SNR ↑': r1(x.snr_up_all ?? x.snr_up),\n        'RSSI ↓': r1(x.rssi_dn),\n        'SNR ↓': r1(x.snr_dn),\n        'RTT ms': x.rtt_ms ? Math.round(x.rtt_ms) : null\n    };\n});\n\nconst pdr = [];\nconst lvl = [];\nconst snr = [];\nfor (const k of keys) {\n    const x = all[k];\n    pdr.push({ sf: k, serie: 'casa→garaje', v: pct(x.pdr_up) });\n    pdr.push({ sf: k, serie: 'garaje→casa', v: pct(x.pdr_dn) });\n    pdr.push({ sf: k, serie: 'ida+vuelta', v: pct(x.pdr_rt) });\n    if (x.pongs) {\n        lvl.push({ sf: k, serie: '↓ garaje→casa', v: r1(x.rssi_dn) });\n        lvl.push({ sf: k, serie: '↑ casa→garaje', v: r1(x.rssi_up_all ?? x.rssi_up) });\n        snr.push({ sf: k, serie: '↓ garaje→casa', v: r1(x.snr_dn) });\n        snr.push({ sf: k, serie: '↑ casa→garaje', v: r1(x.snr_up_all ?? x.snr_up) });\n    }\n}\n\n// Línea CSV\nconst cols = ['sweep','test','sf','bw','cr','power','freq','toa_ms','interval_ms','cfg_ok','report_ok','aborted',\n              'sent','garage_rx','pongs','pdr_up','pdr_dn','pdr_rt','rssi_up','snr_up','rssi_up_all','snr_up_all',\n              'rssi_dn','snr_dn','rssi_dn_min','snr_dn_min','rtt_ms','ctrl_rssi'];\nlet csv = '';\nif (!context.get('hdr')) { csv += 'fecha,' + cols.join(',') + '\\n'; context.set('hdr', true); }\ncsv += new Date().toISOString() + ',' + cols.map(c => s[c] ?? '').join(',');\n\nreturn [{ payload: table }, { payload: pdr }, { payload: lvl }, { payload: csv }, { payload: snr }];",
+    "outputs": 5,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 320,
+    "wires": [
+      [
+        "f1f0000000000003"
+      ],
+      [
+        "f1f0000000000004"
+      ],
+      [
+        "f1f0000000000005"
+      ],
+      [
+        "f1f0000000000006"
+      ],
+      [
+        "f1f0000000000007"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000003",
+    "type": "ui-table",
+    "group": "d1f0000000000003",
+    "name": "Tabla resumen",
+    "label": "",
+    "order": 1,
+    "width": 0,
+    "height": 0,
+    "maxrows": 0,
+    "passthru": false,
+    "autocols": true,
+    "showSearch": false,
+    "deselect": true,
+    "selectionType": "none",
+    "columns": [],
+    "mobileBreakpoint": "sm",
+    "mobileBreakpointType": "defaults",
+    "action": "replace",
+    "className": "",
+    "x": 700,
+    "y": 280,
+    "wires": [],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000004",
+    "type": "ui-chart",
+    "group": "d1f0000000000002",
+    "name": "Entrega (%)",
+    "label": "Entrega (%)",
+    "order": 1,
+    "chartType": "bar",
+    "category": "serie",
+    "categoryType": "property",
+    "xAxisLabel": "",
+    "xAxisProperty": "sf",
+    "xAxisPropertyType": "property",
+    "xAxisType": "category",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "xmin": "",
+    "xmax": "",
+    "yAxisLabel": "",
+    "yAxisProperty": "v",
+    "yAxisPropertyType": "property",
+    "ymin": "0",
+    "ymax": "100",
+    "bins": 10,
+    "action": "replace",
+    "stackSeries": false,
+    "pointShape": "circle",
+    "pointRadius": 3,
+    "showLegend": true,
+    "removeOlder": 1,
+    "removeOlderUnit": "3600",
+    "removeOlderPoints": "",
+    "colors": [
+      "#1f77b4",
+      "#ff7f0e",
+      "#2ca02c",
+      "#d62728",
+      "#9467bd",
+      "#8c564b",
+      "#e377c2",
+      "#7f7f7f",
+      "#bcbd22"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": 8,
+    "height": 6,
+    "className": "",
+    "interpolation": "linear",
+    "x": 690,
+    "y": 320,
+    "wires": [
+      []
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000005",
+    "type": "ui-chart",
+    "group": "d1f0000000000006",
+    "name": "RSSI medio",
+    "label": "RSSI medio",
+    "order": 1,
+    "chartType": "bar",
+    "category": "serie",
+    "categoryType": "property",
+    "xAxisLabel": "",
+    "xAxisProperty": "sf",
+    "xAxisPropertyType": "property",
+    "xAxisType": "category",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "xmin": "",
+    "xmax": "",
+    "yAxisLabel": "",
+    "yAxisProperty": "v",
+    "yAxisPropertyType": "property",
+    "ymin": "-140",
+    "ymax": "-40",
+    "bins": 10,
+    "action": "replace",
+    "stackSeries": false,
+    "pointShape": "circle",
+    "pointRadius": 3,
+    "showLegend": true,
+    "removeOlder": 1,
+    "removeOlderUnit": "3600",
+    "removeOlderPoints": "",
+    "colors": [
+      "#ff7f0e",
+      "#1f77b4",
+      "#2ca02c",
+      "#d62728",
+      "#9467bd",
+      "#8c564b",
+      "#e377c2",
+      "#7f7f7f",
+      "#bcbd22"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": 6,
+    "height": 6,
+    "className": "",
+    "interpolation": "linear",
+    "x": 690,
+    "y": 360,
+    "wires": [
+      []
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000007",
+    "type": "ui-chart",
+    "group": "d1f0000000000007",
+    "name": "SNR medio",
+    "label": "SNR medio",
+    "order": 1,
+    "chartType": "bar",
+    "category": "serie",
+    "categoryType": "property",
+    "xAxisLabel": "",
+    "xAxisProperty": "sf",
+    "xAxisPropertyType": "property",
+    "xAxisType": "category",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "xmin": "",
+    "xmax": "",
+    "yAxisLabel": "",
+    "yAxisProperty": "v",
+    "yAxisPropertyType": "property",
+    "ymin": "-25",
+    "ymax": "15",
+    "bins": 10,
+    "action": "replace",
+    "stackSeries": false,
+    "pointShape": "circle",
+    "pointRadius": 3,
+    "showLegend": true,
+    "removeOlder": 1,
+    "removeOlderUnit": "3600",
+    "removeOlderPoints": "",
+    "colors": [
+      "#ff7f0e",
+      "#1f77b4",
+      "#2ca02c",
+      "#d62728",
+      "#9467bd",
+      "#8c564b",
+      "#e377c2",
+      "#7f7f7f",
+      "#bcbd22"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": 6,
+    "height": 6,
+    "className": "",
+    "interpolation": "linear",
+    "x": 690,
+    "y": 440,
+    "wires": [
+      []
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000006",
+    "type": "file",
+    "name": "CSV resumen",
+    "filename": "lora32_summary.csv",
+    "filenameType": "str",
+    "appendNewline": true,
+    "createDir": true,
+    "overwriteFile": "false",
+    "encoding": "utf8",
+    "x": 690,
+    "y": 400,
+    "wires": [
+      []
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000010",
+    "type": "mqtt in",
+    "name": "",
+    "topic": "lora32/ping",
+    "qos": "0",
+    "datatype": "json",
+    "broker": "b1f0000000000001",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 150,
+    "y": 480,
+    "wires": [
+      [
+        "f1f0000000000013"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000013",
+    "type": "function",
+    "name": "ping → series",
+    "func": "const p = msg.payload;\nconst cols = ['sweep','test','sf','seq','ok','rssi_up','snr_up','rssi_dn','snr_dn','ferr_hz','rtt_ms'];\nlet csv = '';\nif (!context.get('hdr')) { csv += 'fecha,' + cols.join(',') + '\\n'; context.set('hdr', true); }\ncsv += new Date().toISOString() + ',' + cols.map(c => p[c] ?? '').join(',');\nconst out = [null, null, { payload: csv }];\nif (p.ok) {\n    out[0] = [{ topic: `SF${p.sf} ↓`, payload: p.rssi_dn }, { topic: `SF${p.sf} ↑`, payload: p.rssi_up }];\n    out[1] = [{ topic: `SF${p.sf} ↓`, payload: p.snr_dn }, { topic: `SF${p.sf} ↑`, payload: p.snr_up }];\n}\nreturn out;",
+    "outputs": 3,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 480,
+    "wires": [
+      [
+        "f1f0000000000011"
+      ],
+      [
+        "f1f0000000000012"
+      ],
+      [
+        "f1f0000000000014"
+      ]
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000011",
+    "type": "ui-chart",
+    "group": "d1f0000000000004",
+    "name": "RSSI",
+    "label": "RSSI",
+    "order": 1,
+    "chartType": "line",
+    "category": "topic",
+    "categoryType": "msg",
+    "xAxisLabel": "",
+    "xAxisProperty": "",
+    "xAxisPropertyType": "timestamp",
+    "xAxisType": "time",
+    "xAxisFormat": "",
+    "xAxisFormatType": "HH:mm:ss",
+    "xmin": "",
+    "xmax": "",
+    "yAxisLabel": "",
+    "yAxisProperty": "payload",
+    "yAxisPropertyType": "msg",
+    "ymin": "",
+    "ymax": "",
+    "bins": 10,
+    "action": "append",
+    "stackSeries": false,
+    "pointShape": "circle",
+    "pointRadius": 3,
+    "showLegend": true,
+    "removeOlder": 6,
+    "removeOlderUnit": "3600",
+    "removeOlderPoints": "",
+    "colors": [
+      "#0095ff",
+      "#ff0000",
+      "#ff7f0e",
+      "#2ca02c",
+      "#a347e1",
+      "#d62728",
+      "#ff9896",
+      "#9467bd",
+      "#c5b0d5"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": 6,
+    "height": 8,
+    "className": "",
+    "interpolation": "linear",
+    "x": 690,
+    "y": 460,
+    "wires": [
+      []
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000012",
+    "type": "ui-chart",
+    "group": "d1f0000000000005",
+    "name": "SNR",
+    "label": "SNR",
+    "order": 1,
+    "chartType": "line",
+    "category": "topic",
+    "categoryType": "msg",
+    "xAxisLabel": "",
+    "xAxisProperty": "",
+    "xAxisPropertyType": "timestamp",
+    "xAxisType": "time",
+    "xAxisFormat": "",
+    "xAxisFormatType": "HH:mm:ss",
+    "xmin": "",
+    "xmax": "",
+    "yAxisLabel": "",
+    "yAxisProperty": "payload",
+    "yAxisPropertyType": "msg",
+    "ymin": "",
+    "ymax": "",
+    "bins": 10,
+    "action": "append",
+    "stackSeries": false,
+    "pointShape": "circle",
+    "pointRadius": 3,
+    "showLegend": true,
+    "removeOlder": 6,
+    "removeOlderUnit": "3600",
+    "removeOlderPoints": "",
+    "colors": [
+      "#0095ff",
+      "#ff0000",
+      "#ff7f0e",
+      "#2ca02c",
+      "#a347e1",
+      "#d62728",
+      "#ff9896",
+      "#9467bd",
+      "#c5b0d5"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": 6,
+    "height": 8,
+    "className": "",
+    "interpolation": "linear",
+    "x": 690,
+    "y": 500,
+    "wires": [
+      []
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000014",
+    "type": "file",
+    "name": "CSV pings",
+    "filename": "lora32_pings.csv",
+    "filenameType": "str",
+    "appendNewline": true,
+    "createDir": true,
+    "overwriteFile": "false",
+    "encoding": "utf8",
+    "x": 680,
+    "y": 540,
+    "wires": [
+      []
+    ],
+    "z": "a1f0000000000001"
+  },
+  {
+    "id": "f1f0000000000020",
+    "type": "comment",
+    "name": "Instalar: @flowfuse/node-red-dashboard · Dashboard en /dashboard/sf · CSV en el directorio de trabajo de Node-RED",
+    "info": "",
+    "x": 420,
+    "y": 20,
+    "wires": [],
+    "z": "a1f0000000000001"
+  }
+]
