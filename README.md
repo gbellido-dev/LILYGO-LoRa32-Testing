@@ -1,12 +1,13 @@
 # LILYGO LoRa32: garaje ↔ casa
 
 Dos placas LILYGO LoRa32 (SX1276, 868 MHz): una en casa (WiFi) y otra en el garaje (solo alimentación).
-El repositorio tiene **dos proyectos PlatformIO independientes**. Abre cada carpeta por separado en VS Code
+El repositorio tiene **varios proyectos PlatformIO independientes**. Abre cada carpeta por separado en VS Code
 o usa `pio` dentro de ella.
 
 | Carpeta | Para qué | Envs |
 |---------|----------|------|
 | [`Testing/`](Testing) | Medir el enlace: barridos de SF7…SF12 con ping/pong, resultados en Node-RED (dashboard + CSV) | `home`, `garage` (+ `_v1`) |
+| [`Alfabeto/`](Alfabeto) | Prueba sencilla del OLED: una letra mayúscula cada 3 s, a 58 px de alto | `alfabeto` (+ `_v1`) |
 | [`Bridge/`](Bridge) | Uso definitivo: PIR, puerta y BME280 del garaje → LoRa **cifrado (AES-128)** → MQTT → **Home Assistant** (autodescubrimiento y detección de inhibidores) | `home`, `garage` (+ `_v1`) |
 
 ## Orden recomendado
