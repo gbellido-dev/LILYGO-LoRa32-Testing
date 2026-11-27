@@ -20,7 +20,8 @@ Los dos proyectos usan el mismo hardware y la misma frecuencia (869.525 MHz, 10 
 pero distinto identificador de paquete: no se confunden si alguna vez conviven.
 
 ```bash
-cd Testing && pio run -e garage -t upload    # o Bridge
+cd Testing && pio run -e garage -t upload    # dentro de cada carpeta
+pio run -e bridge_garage -t upload           # o desde la raíz: testing_*, bridge_*, alfabeto
 ```
 
 En las dos carpetas tienes que copiar `include/secrets.h.example` como `include/secrets.h`.
