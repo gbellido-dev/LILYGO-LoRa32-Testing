@@ -90,7 +90,20 @@ static void onMqtt(char* topic, byte* payload, unsigned int len) {
 
 static void connectivity() {
   static uint32_t lastTry = 0;
-  if (WiFi.status() != WL_CONNECTED) return;  // WiFi reconecta sola
+  static int lastWifi = -1;
+  int ws = WiFi.status();
+  if (ws != lastWifi) {
+    lastWifi = ws;
+    if (ws == WL_CONNECTED)
+      Serial.printf("[wifi] conectado a %s, IP %s, RSSI %d dBm\n", WIFI_SSID,
+                    WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    else
+      Serial.printf("[wifi] estado %d (%s)\n", ws,
+                    ws == WL_NO_SSID_AVAIL ? "no encuentra la red" :
+                    ws == WL_CONNECT_FAILED ? "fallo de conexion / clave" :
+                    ws == WL_DISCONNECTED ? "desconectado" : "conectando");
+  }
+  if (ws != WL_CONNECTED) return;  // WiFi reconecta sola
   if (mqtt.connected()) { mqtt.loop(); return; }
   if (millis() - lastTry < 5000) return;
   lastTry = millis();
@@ -102,6 +115,8 @@ static void connectivity() {
     mqtt.publish(T("status").c_str(), "online", true);
     mqtt.subscribe(T("cmd").c_str());
     Serial.println("[mqtt] conectado");
+  } else {
+    Serial.printf("[mqtt] no conecta a %s:%d (estado %d)\n", MQTT_HOST, MQTT_PORT, mqtt.state());
   }
 }
 
